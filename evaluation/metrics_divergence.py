@@ -25,9 +25,9 @@ def prediction_divergence(
             logits_ret = model_retrained(x)
             probs_unl = F.softmax(logits_unl, dim=1)
             probs_ret = F.softmax(logits_ret, dim=1)
-            m = 0.5 * (probs_unl + probs_ret)
-            kl1 = F.kl_div(m.log(), probs_unl, reduction="none").sum(dim=1)
-            kl2 = F.kl_div(m.log(), probs_ret, reduction="none").sum(dim=1)
+            log_m = torch.log(0.5 * (probs_unl + probs_ret) + 1e-10)
+            kl1 = F.kl_div(log_m, probs_unl, reduction="none").sum(dim=1)
+            kl2 = F.kl_div(log_m, probs_ret, reduction="none").sum(dim=1)
             js = 0.5 * (kl1 + kl2)
             js_divs.extend(js.cpu().numpy())
 

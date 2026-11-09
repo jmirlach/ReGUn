@@ -7,6 +7,9 @@ retain_weight: 0.5
 forget_weight: ${eval:1 - ${.retain_weight}}
 # To match paper's Lr + lambda * Lf(θ′): retain_weight = 1 and forget_weight = lambda
 
+scope:
+  mode: full # full | last_stage_head (Swin only; also restricts pruning)
+
 pruning:
   enabled: true
   auto: true

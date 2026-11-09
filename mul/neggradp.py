@@ -29,7 +29,7 @@ class _NegGradPlusModule(pl.LightningModule):
         self.val_acc = MulticlassAccuracy(num_classes=num_classes)
         self.test_acc = MulticlassAccuracy(num_classes=num_classes)
 
-        self.sequential = bool(getattr(self.cfg, "sequential", True))
+        self.sequential = bool(self.cfg.sequential)
         self.neg_cfg = self.cfg.neggrad
         self.fin_cfg = self.cfg.finetune
 

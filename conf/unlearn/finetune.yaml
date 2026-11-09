@@ -1,6 +1,7 @@
 name: finetune
 
 evaluate_each_epoch: true
+use_retain_subset: true # fixed forget-sized subset; false uses the full retain set
 
 trainer:
   max_epochs: 2

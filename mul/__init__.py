@@ -8,6 +8,7 @@ from omegaconf import DictConfig
 from evaluation.evaluator import MULEvaluator
 from .base import UnlearningStrategy
 from .amun import AMUN
+from .bad_teacher import BadTeacher
 from .finetune import Finetune
 from .l1sparse import L1Sparse
 from .neggrad import NegGrad
@@ -21,6 +22,7 @@ from .lur import LUR
 
 _MUL_STRATEGIES: Dict[str, Type[UnlearningStrategy]] = {
     "amun": AMUN,
+    "bad_teacher": BadTeacher,
     "finetune": Finetune,
     "l1sparse": L1Sparse,
     "neggrad": NegGrad,

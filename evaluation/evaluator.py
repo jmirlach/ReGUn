@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional, Union
 from omegaconf import DictConfig
 from lightning.pytorch import LightningDataModule, LightningModule
 from lightning.pytorch.callbacks import Callback
+from torch.utils.data import Subset
 from models import load_model
 from utils import resolve_checkpoint_path
 from evaluation.metrics_aggregation import average_metric_gap
@@ -28,63 +29,61 @@ class MULEvaluator:
         self.forget_loader = datamodule.forget_eval_dataloader()
         self.eval_loader = datamodule.val_dataloader()
         self.test_loader = datamodule.test_dataloader()
+        self.mia_eval_loader = self._mia_nonmember_loader(datamodule, self.eval_loader)
+        self.mia_test_loader = self._mia_nonmember_loader(datamodule, self.test_loader)
 
         self._reference_metrics_path = Path(self.cfg.mul_eval.cache)
         self.model_retrained = load_model(self.cfg, self.cfg.run.retrain_weights)
 
         self._ensure_reference_metrics_cached()
 
+    def _mia_nonmember_loader(self, datamodule: LightningDataModule, loader):
+        """Match class-forgetting nonmembers without restricting utility evaluation."""
+        if self.cfg.split.scheme != "class":
+            return loader
+
+        dataset = loader.dataset
+        indices = list(range(len(dataset)))
+        while isinstance(dataset, Subset):
+            indices = [dataset.indices[i] for i in indices]
+            dataset = dataset.dataset
+        labels = [int(dataset.targets[i]) for i in indices]
+        classes = set(self.cfg.split.forget_classes)
+        if not classes or classes - set(labels):
+            raise ValueError("Class-forgetting MIA requires nonmembers from every forgotten class.")
+        selected = [i for i, label in enumerate(labels) if label in classes]
+        return datamodule._dl(Subset(loader.dataset, selected), shuffle=False)
+
 
     def _ensure_reference_metrics_cached(self) -> None:
         """Persist reference metrics for the default reference if missing."""
-        cached: Optional[Dict[str, Any]] = None
-        reference_probs: Dict[str, Any] = {}
-        required_keys = ("forget", "test", "eval")
-        missing_keys = list(required_keys)
-        needs_retrained_metrics = True
-
         if self._reference_metrics_path.exists():
-            cached = self._get_cached_reference_metrics()
-            reference_probs = dict(cached.get("reference_probs", {}))
-            missing_keys = [k for k in required_keys if k not in reference_probs]
-            retrained_metrics = cached.get("model_retrained", {})
-            needs_retrained_metrics = any(
-                key not in retrained_metrics for key in ("acc_eval", "rmia_eval_auc")
-            )
-            if not missing_keys and not needs_retrained_metrics:
-                print(f"[MULEvaluator] Found cached reference metrics at {self._reference_metrics_path}.")
-                return
-            print(f"[MULEvaluator] Updating cached reference metrics at {self._reference_metrics_path}...")
-        else:
-            print(f"[MULEvaluator] Caching reference metrics at {self._reference_metrics_path}...")
+            print(f"[MULEvaluator] Found cached reference metrics at {self._reference_metrics_path}.")
+            return
 
+        print(f"[MULEvaluator] Caching reference metrics at {self._reference_metrics_path}...")
         self._reference_metrics_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if missing_keys:
-            loader_map = {
-                "forget": self.forget_loader,
-                "test": self.test_loader,
-                "eval": self.eval_loader,
-            }
-            for key in missing_keys:
-                reference_probs[key] = []
+        loader_map = {
+            "forget": self.forget_loader,
+            "test": self.mia_test_loader,
+            "eval": self.mia_eval_loader,
+        }
+        reference_probs: Dict[str, Any] = {key: [] for key in loader_map}
 
-            for idx in range(1, self.cfg.mul_eval.mia_num_models + 1):
-                ref_name = f"reference_{idx:03d}"
-                ref_path = resolve_checkpoint_path(self.cfg, retrain=True, reference_run=idx)
-                if not ref_path.exists():
-                    raise FileNotFoundError(f"[MULEvaluator] Reference checkpoint missing at {ref_path} (name={ref_name}).")
-                model = load_model(self.cfg, str(ref_path))
-                for key in missing_keys:
-                    reference_probs[key].append(calc_reference_probs(model, loader_map[key], self.device))
+        for idx in range(1, self.cfg.mul_eval.mia_num_models + 1):
+            ref_name = f"reference_{idx:03d}"
+            ref_path = resolve_checkpoint_path(self.cfg, retrain=True, reference_run=idx)
+            if not ref_path.exists():
+                raise FileNotFoundError(f"[MULEvaluator] Reference checkpoint missing at {ref_path} (name={ref_name}).")
+            model = load_model(self.cfg, str(ref_path))
+            for key, loader in loader_map.items():
+                reference_probs[key].append(calc_reference_probs(model, loader, self.device))
 
         metrics: Dict[str, Any] = {
             "reference_probs": reference_probs,
+            "model_retrained": self._build_reference_metrics(reference_probs),
         }
-        if needs_retrained_metrics or missing_keys:
-            metrics["model_retrained"] = self._build_reference_metrics(reference_probs)
-        elif cached is not None:
-            metrics["model_retrained"] = cached.get("model_retrained", {})
 
         torch.save(metrics, str(self._reference_metrics_path))
 
@@ -101,8 +100,8 @@ class MULEvaluator:
         """Compute MIA metrics for test and eval splits."""
         mia_results: Dict[str, float] = {}
         for suffix, split_key, loader in [
-            ("", "test", self.test_loader),
-            ("_eval", "eval", self.eval_loader),
+            ("", "test", self.mia_test_loader),
+            ("_eval", "eval", self.mia_eval_loader),
         ]:
             ref_probs = {
                 "forget": reference_probs["forget"],

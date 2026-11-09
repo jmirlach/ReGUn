@@ -45,12 +45,12 @@ class SwinClassifier(pl.LightningModule):
         # Adjusted new head
         self.model.head = nn.Linear(self.model.head.in_features, self.num_classes)
 
-        if getattr(cfg.model, "freeze_backbone", False):
+        if cfg.model.freeze_backbone:
             for n, p in self.model.named_parameters():
                 if not n.startswith("head."):
                     p.requires_grad = False
 
-        label_smoothing = float(getattr(cfg.model, "label_smoothing", 0.0))
+        label_smoothing = float(cfg.model.label_smoothing)
         self.loss_fn = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         self.train_acc = MulticlassAccuracy(num_classes=self.num_classes)
         self.val_acc = MulticlassAccuracy(num_classes=self.num_classes)

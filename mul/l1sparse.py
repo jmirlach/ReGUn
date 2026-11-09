@@ -103,10 +103,12 @@ class L1Sparse(UnlearningStrategy):
         """Execute L1-sparse fine-tuning and return the updated model."""
         l1_module = _L1SparseModule(base_model, self.cfg.unlearn)
         trainer = self.new_trainer()
+        use_subset = bool(self.cfg.unlearn.use_retain_subset)
+        train_loader = self.dm.retain_dataloader_subset() if use_subset else self.dm.retain_dataloader()
 
         trainer.fit(
             l1_module,
-            train_dataloaders=self.dm.retain_dataloader_subset(),
+            train_dataloaders=train_loader,
             val_dataloaders=self.dm.val_dataloader(),
         )
 

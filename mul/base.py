@@ -34,7 +34,7 @@ class UnlearningStrategy(ABC):
         self.dm = dm
         self.dm.setup()
         self.wandb_run = wandb_run
-        self._enable_epoch_eval: bool = bool(getattr(self.cfg.unlearn, "evaluate_each_epoch", False))
+        self._enable_epoch_eval: bool = bool(self.cfg.unlearn.evaluate_each_epoch)
         self.evaluator: Optional[MULEvaluator] = evaluator
 
     def clone_fresh_model(self) -> pl.LightningModule:

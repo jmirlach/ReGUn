@@ -28,13 +28,6 @@ def _tiny_imagenet_stem(m: nn.Module) -> None:
     m.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
     m.maxpool = nn.Identity()
 
-def _resolve_stem(cfg: DictConfig) -> str:
-    model_cfg = cfg.model
-    stem = model_cfg.get("stem")
-    if stem is None:
-        stem = "cifar" if model_cfg.get("cifar_stem", False) else "none"
-    return stem
-
 class ResNetClassifier(pl.LightningModule):
     """Minimal Lightning wrapper for torchvision ResNet-18/34/50."""
 
@@ -56,8 +49,8 @@ class ResNetClassifier(pl.LightningModule):
         ctor, weights_enum = _BACKBONES[cfg.model.name.lower()]
         weights = (weights_enum if cfg.model.pretrained else None)
         self.model = ctor(weights=weights)
-        # Optional stem adjustment (backward-compatible with legacy configs).
-        stem = _resolve_stem(cfg)
+        # Optional stem adjustment.
+        stem = cfg.model.stem
         if stem == "cifar":
             _cifar_stem(self.model)
         elif stem == "tiny_imagenet":
@@ -66,7 +59,7 @@ class ResNetClassifier(pl.LightningModule):
         # Adjusted new head
         self.model.fc = nn.Linear(self.model.fc.in_features, self.num_classes)
 
-        if getattr(cfg.model, "freeze_backbone", False):
+        if cfg.model.freeze_backbone:
             for name, p in self.model.named_parameters():
                 if not name.startswith("fc."):
                     p.requires_grad = False

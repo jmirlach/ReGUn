@@ -181,6 +181,20 @@ def _format_fraction_for_path(value: Any) -> str:
     return str(value)
 
 
+def _split_identifier(scheme: str, forget_classes: Iterable[int]) -> str:
+    """Include the target classes in class-forgetting artifact names."""
+    if scheme != "class":
+        return scheme
+    classes = "-".join(str(c) for c in sorted(set(forget_classes)))
+    return f"class_{classes}"
+
+
+if not OmegaConf.has_resolver("split_identifier"):
+    OmegaConf.register_new_resolver("split_identifier", _split_identifier)
+if not OmegaConf.has_resolver("format_fraction"):
+    OmegaConf.register_new_resolver("format_fraction", _format_fraction_for_path)
+
+
 def _default_base_checkpoint_path(
     cfg: DictConfig,
     retrain: bool = False,
@@ -189,12 +203,12 @@ def _default_base_checkpoint_path(
     """Return the default base checkpoint path after initial training."""
     model_name = cfg.model.model.name
     data_name = cfg.data.name
-    split_scheme = cfg.split.scheme
+    split_id = cfg.split.identifier
     forget_frac = _format_fraction_for_path(cfg.split.forget_frac)
     suffix = "" if reference_run is None else f"-{int(reference_run):03d}"
     cache_dir = cfg.paths.cache_dir
     relative_path = (
-        f"{cache_dir}/models/{model_name}_{data_name}_{split_scheme}_forget{forget_frac}_"
+        f"{cache_dir}/models/{model_name}_{data_name}_{split_id}_forget{forget_frac}_"
         f"{'retrained_' if retrain else ''}{cfg.seed}{suffix}.ckpt"
     )
     return Path(to_absolute_path(relative_path))
@@ -244,7 +258,7 @@ def resolve_amun_adv_cache_path(cfg: DictConfig) -> Path:
 
     cache_dir = cfg.paths.cache_dir
     relative_path = (
-        f"{cache_dir}/adv_sets/amun_adv_{model_name}_{data_name}_{cfg.split.scheme}_"
+        f"{cache_dir}/adv_sets/amun_adv_{model_name}_{data_name}_{cfg.split.identifier}_"
         f"forget{forget_frac}_seed{cfg.seed}_eps{eps}_steps{attack_cfg.steps}_stepf{step_factor}_rounds{max_rounds}.pt"
     )
     return Path(to_absolute_path(relative_path)).resolve()

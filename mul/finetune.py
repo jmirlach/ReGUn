@@ -72,10 +72,12 @@ class Finetune(UnlearningStrategy):
 
         finetune_module = _FinetuneModule(base_model, self.cfg.unlearn)
         trainer = self.new_trainer()
+        use_subset = bool(self.cfg.unlearn.use_retain_subset)
+        train_loader = self.dm.retain_dataloader_subset() if use_subset else self.dm.retain_dataloader()
 
         trainer.fit(
             finetune_module,
-            train_dataloaders=self.dm.retain_dataloader_subset(),
+            train_dataloaders=train_loader,
             val_dataloaders=self.dm.val_dataloader(),
         )
 

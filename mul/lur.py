@@ -3,12 +3,9 @@ import math
 import lightning.pytorch as pl
 import torch
 import torch.nn as nn
+from torch.func import functional_call as _functional_call
 from lightning.pytorch.utilities.combined_loader import CombinedLoader
 from torchmetrics.classification import MulticlassAccuracy
-try:
-    from torch.func import functional_call as _functional_call
-except Exception:
-    from torch.nn.utils.stateless import functional_call as _functional_call
 
 from utils.utils import build_optimizer
 from .base import UnlearningStrategy
@@ -42,6 +39,24 @@ class _LURModule(pl.LightningModule):
         self.test_acc = MulticlassAccuracy(num_classes=num_classes)
 
         self.loss_fn = nn.CrossEntropyLoss()
+        self.scope_patterns = self._apply_trainable_scope()
+
+    def _apply_trainable_scope(self) -> Optional[List[str]]:
+        """Optionally restrict Swin unlearning to its last stage, norm, and head."""
+        scope_mode = str(self.cfg.scope.mode)
+        if scope_mode == "full":
+            return None
+        if scope_mode != "last_stage_head" or not str(self.full_cfg.model.model.name).startswith("swin"):
+            raise ValueError("LUR supports scope.mode=full or last_stage_head for Swin.")
+
+        patterns = ["model.features.7", "model.norm", "model.head"]
+        named_params = list(self.model.named_parameters())
+        for pattern in patterns:
+            if not any(name.startswith(f"{pattern}.") for name, _ in named_params):
+                raise ValueError(f"LUR scope matched no parameters for {pattern}.")
+        for name, param in named_params:
+            param.requires_grad_(any(name.startswith(f"{pattern}.") for pattern in patterns))
+        return patterns
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Run a forward pass through the wrapped model."""
@@ -49,16 +64,16 @@ class _LURModule(pl.LightningModule):
 
     def on_fit_start(self) -> None:
         """Apply optional SNIP-style pruning at fit start."""
-        pruning_cfg = getattr(self.cfg, "pruning", None)
-        if pruning_cfg is None or not bool(getattr(pruning_cfg, "enabled", True)):
+        pruning_cfg = self.cfg.pruning
+        if not bool(pruning_cfg.enabled):
             return
         self._apply_snip_pruning(pruning_cfg)
 
     def _resolve_pruning_sparsity(self, pruning_cfg: Any) -> float:
         """Resolve pruning sparsity from config and dataset settings."""
-        if getattr(pruning_cfg, "sparsity", None) is not None:
+        if pruning_cfg.sparsity is not None:
             return float(pruning_cfg.sparsity)
-        if not bool(getattr(pruning_cfg, "auto", False)):
+        if not bool(pruning_cfg.auto):
             raise ValueError("LUR pruning requires `pruning.sparsity` or `pruning.auto=true`.")
 
         data_name = str(self.full_cfg.data.name).lower()
@@ -80,11 +95,14 @@ class _LURModule(pl.LightningModule):
 
     def _resolve_layer_patterns(self, pruning_cfg: Any) -> Optional[List[str]]:
         """Resolve layer name filters for pruning."""
-        patterns = getattr(pruning_cfg, "layer_patterns", None)
+        patterns = pruning_cfg.layer_patterns
         if patterns is not None:
             return [str(p) for p in list(patterns)]
 
-        if not bool(getattr(pruning_cfg, "auto", False)):
+        if self.scope_patterns is not None:
+            return self.scope_patterns
+
+        if not bool(pruning_cfg.auto):
             return None
 
         data_name = str(self.full_cfg.data.name).lower()
@@ -97,15 +115,17 @@ class _LURModule(pl.LightningModule):
     def _apply_snip_pruning(self, pruning_cfg: Any) -> None:
         """Apply SNIP-style pruning and reinitialize pruned weights."""
         sparsity = self._resolve_pruning_sparsity(pruning_cfg)
-        prune_num = int(getattr(pruning_cfg, "prune_num", 1))
+        prune_num = int(pruning_cfg.prune_num)
         layer_patterns = self._resolve_layer_patterns(pruning_cfg)
-        exclude_bn = bool(getattr(pruning_cfg, "exclude_bn", True))
+        exclude_bn = bool(pruning_cfg.exclude_bn)
 
         if sparsity <= 0.0:
             return
 
         device = self.device
-        named_params = list(self.model.named_parameters())
+        named_params = [(name, param) for name, param in self.model.named_parameters() if param.requires_grad]
+        if not named_params:
+            return
         params = [p for _, p in named_params]
         grads = [torch.zeros_like(p) for p in params]
 
@@ -123,7 +143,7 @@ class _LURModule(pl.LightningModule):
             self.model.zero_grad()
             loss.backward()
 
-            for idx, param in enumerate(self.model.parameters()):
+            for idx, (_, param) in enumerate(named_params):
                 if param.grad is not None:
                     grads[idx].add_(param.grad.detach().abs())
 

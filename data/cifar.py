@@ -37,7 +37,6 @@ class CIFARDataModule(pl.LightningDataModule):
 
         self.eval_train_full = None
         self.eval_retain = None
-        self.eval_retain_subset = None
         self.eval_forget = None
         self.eval_heldout = None
         self.val = None
@@ -79,7 +78,6 @@ class CIFARDataModule(pl.LightningDataModule):
                 labels=raw_labels,
                 seed=int(sp.seed),
                 val_frac=float(sp.validation_frac),
-                retain_frac=float(sp.retain_frac),
                 forget_frac=float(sp.forget_frac),
                 heldout_frac=float(sp.heldout_frac),
             )
@@ -88,7 +86,6 @@ class CIFARDataModule(pl.LightningDataModule):
                 labels=raw_labels,
                 seed=int(sp.seed),
                 val_frac=float(sp.validation_frac),
-                retain_frac=float(sp.retain_frac),
                 forget_frac=float(sp.forget_frac),
                 heldout_frac=float(sp.heldout_frac),
             )
@@ -97,7 +94,6 @@ class CIFARDataModule(pl.LightningDataModule):
                 labels=raw_labels,
                 seed=int(sp.seed),
                 val_frac=float(sp.validation_frac),
-                retain_frac=float(sp.retain_frac),
                 heldout_frac=float(sp.heldout_frac),
                 forget_classes=list(sp.forget_classes),
                 forget_frac=float(sp.forget_frac),
@@ -122,21 +118,21 @@ class CIFARDataModule(pl.LightningDataModule):
 
         self.eval_train_full = Subset(self.ds_val, train_full_idx)
         self.eval_retain = Subset(self.ds_val, retain_idx)
-        self.eval_retain_subset = Subset(self.ds_val, retain_subset_idx)
         self.eval_forget = Subset(self.ds_val, forget_idx)
         self.eval_heldout = Subset(self.ds_val, heldout_idx)
         self.val = Subset(self.ds_val, val_idx)
 
     def _dl(self, ds, shuffle):
         """Build a DataLoader for the given dataset."""
+        workers = self.num_workers > 0
         return DataLoader(
             ds,
             batch_size=self.bs,
             shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers,
-            prefetch_factor=self.prefetch_factor,
+            persistent_workers=self.persistent_workers and workers,
+            prefetch_factor=self.prefetch_factor if workers else None,
         )
 
     def train_dataloader(self):              return self._dl(self.train_full, True)
@@ -150,7 +146,6 @@ class CIFARDataModule(pl.LightningDataModule):
 
     def train_eval_dataloader(self):         return self._dl(self.eval_train_full, False)
     def retain_eval_dataloader(self):        return self._dl(self.eval_retain, False)
-    def retain_eval_dataloader_subset(self): return self._dl(self.eval_retain_subset, False)
     def forget_eval_dataloader(self):        return self._dl(self.eval_forget, False)
     def heldout_eval_dataloader(self):       return self._dl(self.eval_heldout, True)
 

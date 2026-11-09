@@ -42,18 +42,22 @@ class _SCRUBModule(pl.LightningModule):
         self.retain_loader = retain_loader
 
         self.alpha = float(cfg.alpha)
-        self.gamma = float(getattr(cfg, "gamma", 1.0))
-        self.temperature = float(getattr(cfg, "temperature", 1.0))
+        self.gamma = float(cfg.gamma)
+        self.temperature = float(cfg.temperature)
         self._forget_epochs: Optional[int] = None
 
         num_classes = self.model.num_classes
-        self.forget_acc = MulticlassAccuracy(num_classes=num_classes)
-        self.retain_acc = MulticlassAccuracy(num_classes=num_classes)
         self.val_acc = MulticlassAccuracy(num_classes=num_classes)
         self.test_acc = MulticlassAccuracy(num_classes=num_classes)
 
         self.ce_loss = nn.CrossEntropyLoss()
         self.automatic_optimization = False
+
+    def train(self, mode: bool = True):
+        """Keep the teacher in eval mode when Lightning toggles the student."""
+        super().train(mode)
+        self.teacher.eval()
+        return self
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Run a forward pass through the student model."""
@@ -83,8 +87,9 @@ class _SCRUBModule(pl.LightningModule):
 
     def _run_forget_epoch(self, optimizer: torch.optim.Optimizer) -> Dict[str, torch.Tensor]:
         """Run a full forget phase over the forget loader."""
-        total_kl = total_acc = torch.zeros(1, device=self.device)
-        steps = 0
+        total_kl = torch.zeros((), device=self.device)
+        total_correct = torch.zeros((), device=self.device)
+        total_examples = 0
         for x, y in self.forget_loader:
             x, y = x.to(self.device), y.to(self.device)
             optimizer.zero_grad(set_to_none=True)
@@ -99,23 +104,26 @@ class _SCRUBModule(pl.LightningModule):
             optimizer.step()
 
             preds = logits_student.argmax(dim=1)
-            acc = self.forget_acc(preds, y)
+            batch_size = y.size(0)
 
-            total_kl += kl.detach()
-            total_acc += acc.detach()
-            steps += 1
+            total_kl += kl.detach() * batch_size
+            total_correct += (preds == y).sum()
+            total_examples += batch_size
 
-        if steps == 0:
+        if total_examples == 0:
             return {}
         return {
-            "forget/kl": total_kl / steps,
-            "forget/acc": total_acc / steps,
+            "forget/kl": total_kl / total_examples,
+            "forget/acc": total_correct / total_examples,
         }
 
     def _run_retain_epoch(self, optimizer: torch.optim.Optimizer) -> Dict[str, torch.Tensor]:
         """Run a full retain phase over the retain loader."""
-        total_loss = total_kl = total_ce = total_acc = torch.zeros(1, device=self.device)
-        steps = 0
+        total_loss = torch.zeros((), device=self.device)
+        total_kl = torch.zeros((), device=self.device)
+        total_ce = torch.zeros((), device=self.device)
+        total_correct = torch.zeros((), device=self.device)
+        total_examples = 0
         for x, y in self.retain_loader:
             x, y = x.to(self.device), y.to(self.device)
             optimizer.zero_grad(set_to_none=True)
@@ -132,22 +140,22 @@ class _SCRUBModule(pl.LightningModule):
             optimizer.step()
 
             preds = logits_student.argmax(dim=1)
-            acc = self.retain_acc(preds, y)
+            batch_size = y.size(0)
 
-            total_loss += loss.detach()
-            total_kl += kl.detach()
-            total_ce += ce.detach()
-            total_acc += acc.detach()
-            steps += 1
+            total_loss += loss.detach() * batch_size
+            total_kl += kl.detach() * batch_size
+            total_ce += ce.detach() * batch_size
+            total_correct += (preds == y).sum()
+            total_examples += batch_size
 
-        if steps == 0:
+        if total_examples == 0:
             return {}
-        inv = 1.0 / steps
+        inv = 1.0 / total_examples
         return {
             "retain/loss": total_loss * inv,
             "retain/kl": total_kl * inv,
             "retain/ce": total_ce * inv,
-            "retain/acc": total_acc * inv,
+            "retain/acc": total_correct * inv,
         }
 
     def _should_run_forget(self) -> bool:

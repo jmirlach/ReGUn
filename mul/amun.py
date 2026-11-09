@@ -21,7 +21,7 @@ class _AMUNModule(pl.LightningModule):
         self.cfg = cfg
 
         self.loss_fn = nn.CrossEntropyLoss()
-        self.use_weighted_loss = bool(getattr(self.cfg, "use_weighted_loss", False))
+        self.use_weighted_loss = bool(self.cfg.use_weighted_loss)
         if self.use_weighted_loss:
             self.retain_weight = float(self.cfg.retain_weight)
             self.forget_weight = float(self.cfg.forget_weight)
@@ -109,10 +109,10 @@ class AMUN(UnlearningStrategy):
     def run(self, base_model: pl.LightningModule) -> pl.LightningModule:
         """Execute AMUN and return the updated model."""
         adv_dataset = self._build_adversarial_dataset(base_model)
-        use_weighted_loss = bool(getattr(self.cfg.unlearn, "use_weighted_loss", False))
+        use_weighted_loss = bool(self.cfg.unlearn.use_weighted_loss)
         if use_weighted_loss:
             adv_train = _AdvDataset(adv_dataset)
-            adv_loader = self._build_loader(adv_train, shuffle=True)
+            adv_loader = self.dm._dl(adv_train, shuffle=True)
             retain_loader = self.dm.retain_dataloader()
             train_loader = CombinedLoader(
                 {"forget": adv_loader, "retain": retain_loader},
@@ -120,7 +120,7 @@ class AMUN(UnlearningStrategy):
             )
         else:
             train_dataset = self._build_finetune_dataset(adv_dataset)
-            train_loader = self._build_loader(train_dataset, shuffle=True)
+            train_loader = self.dm._dl(train_dataset, shuffle=True)
 
         amun_module = _AMUNModule(base_model, self.cfg.unlearn)
         trainer = self.new_trainer()
@@ -144,20 +144,6 @@ class AMUN(UnlearningStrategy):
         if len(datasets) == 1:
             return datasets[0]
         return ConcatDataset(datasets)
-
-    def _build_loader(self, dataset: torch.utils.data.Dataset, shuffle: bool) -> torch.utils.data.DataLoader:
-        """Build a DataLoader using datamodule settings when available."""
-        if hasattr(self.dm, "_dl"):
-            return self.dm._dl(dataset, shuffle)
-        return torch.utils.data.DataLoader(
-            dataset,
-            batch_size=int(self.cfg.data.batch_size),
-            shuffle=shuffle,
-            num_workers=int(self.cfg.data.num_workers),
-            pin_memory=bool(self.cfg.data.pin_memory),
-            persistent_workers=bool(self.cfg.data.persistent_workers),
-            prefetch_factor=int(self.cfg.data.prefetch_factor),
-        )
 
     def _build_adversarial_dataset(self, model: pl.LightningModule) -> TensorDataset:
         """Build or load the cached AMUN adversarial dataset."""

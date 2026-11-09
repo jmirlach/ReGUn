@@ -48,7 +48,7 @@ class ViTClassifier(pl.LightningModule):
         # Adjusted new head
         self.model.heads.head = nn.Linear(self.model.heads.head.in_features, self.num_classes)
 
-        if getattr(cfg.model, "freeze_backbone", False):
+        if cfg.model.freeze_backbone:
             for n, p in self.model.named_parameters():
                 if not n.startswith("heads."):
                     p.requires_grad = False
