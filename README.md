@@ -1,12 +1,12 @@
 # Reference-Guided Machine Unlearning 
 
-Official implementation for the paper: **"Reference-Guided Machine Unlearning"** (Currently under review).
+Official implementation for **[Reference-Guided Machine Unlearning](https://openreview.net/forum?id=Vuo68BTxEc)**, published in Transactions on Machine Learning Research (TMLR), 2026 (see [Citation](#citation)).
 
 ---
 ## Abstract
 
 Machine unlearning aims to remove the influence of specific training data from a model while preserving its general utility. In vision, many approximate unlearning methods pursue this goal through degradation-based heuristics, such as loss maximization or random labeling. Yet making a model worse on forget samples is not the same as making it behave as if those examples had never been seen: these signals can be poorly conditioned, destabilize optimization, and harm generalization. We argue that approximate unlearning should instead prioritize distributional indistinguishability, aligning the model's predictive behavior on forget data with that on truly unseen data. Motivated by this principle, we propose Reference-Guided Unlearning (ReGUn), a vision unlearning framework that uses disjoint held-out data to construct a principled, class-conditioned reference distribution for distillation. Rather than explicitly degrading predictions on forget examples, ReGUn guides them toward non-member behavior through held-out supervision. Across multiple architectures, natural image datasets, and forget fractions,
-ReGUn consistently improves the forgetting-utility trade-off over standard approximate baselines while closely matching retrain-like membership inference behavior. As one instantiation of this principle, the results suggest that simple objectives designed around indistinguishability can provide a stronger and more stable alternative to complex degradation-based unlearning procedures.
+ReGUn achieves a competitive forgetting-utility trade-off relative to standard approximate baselines while closely matching retrain-like membership inference behavior. As one instantiation of this principle, the results suggest that simple objectives designed around indistinguishability can provide an effective alternative to complex degradation-based unlearning procedures.
 
 ![ReGun Overview](./ReGUn_visualization.png)
 ---
@@ -20,7 +20,7 @@ This codebase implements ReGUn and provides a **unified evaluation pipeline** fo
 
 - **Datasets**: CIFAR-10, CIFAR-100 (auto-downloaded), Tiny-ImageNet (must be downloaded and placed in data directory)
 - **Models**: ResNet, Swin Transformer, Vision Transformer (ViT)
-- **Unlearning Methods**: ReGUn, NegGrad, NegGrad+, Finetune, l1-sparse, SCRUB, SalUn, SSD, Amun, LUR
+- **Unlearning Methods**: ReGUn, NegGrad, NegGrad+, Finetune, l1-sparse, SCRUB, SalUn, SSD, Amun, LUR, Bad Teacher
 
 All configurations are managed via [Hydra](https://hydra.cc/) (see `conf/` directory).
 
@@ -74,9 +74,7 @@ done
 python run2_base.py data=cifar10 model=resnet
 ```
 
-**Output**: 
-- Base model: `$CACHE_DIR/models/*_base.ckpt`
-- Retrained model: `$CACHE_DIR/models/*_retrained.ckpt`
+**Output**: Base and retrained checkpoints at `run.base_weights` and `run.retrain_weights`, under `$CACHE_DIR/models/`.
 
 ---
 
@@ -139,3 +137,16 @@ sbatch --export=ALL,PROJ_DIR=$PROJ_DIR,IMG=$IMG,DATASET_ROOT=$DATASET_ROOT,CACHE
 ```
 
 ---
+
+## Citation
+
+```bibtex
+@article{mirlach2026regun,
+  title   = {Reference-Guided Machine Unlearning},
+  author  = {Mirlach, Jonas and Laguna, Sonia and Vogt, Julia E.},
+  journal = {Transactions on Machine Learning Research},
+  issn    = {2835-8856},
+  year    = {2026},
+  url     = {https://openreview.net/forum?id=Vuo68BTxEc}
+}
+```
